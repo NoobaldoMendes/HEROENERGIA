@@ -1,0 +1,331 @@
+<!--
+  Orçamentos – PWA offline (Android/Chrome)
+  ✅ Funciona 100% no navegador, offline (via Service Worker)
+  ✅ Não envia planilha; tudo é editável na tela
+  ✅ Permite adicionar múltiplas instalações
+  ✅ Gera PDF usando a própria impressão do navegador (Ctrl+P / Menu → Compartilhar → Imprimir → Salvar como PDF)
+
+  📂 Arquivos do projeto (crie 3 arquivos no mesmo diretório):
+  - index.html  ← (este arquivo)
+  - sw.js       ← (service worker) — conteúdo no final deste arquivo, copie para sw.js
+  - manifest.webmanifest ← conteúdo no final, copie para manifest.webmanifest
+
+  Como publicar: coloque os três arquivos em qualquer hospedagem estática (GitHub Pages, Netlify, Vercel ou servidor simples).
+  A primeira visita precisa de internet para o SW instalar. Depois funciona offline.
+-->
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Propostas – Consultoria e Gestão</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    :root{
+      --ink:#0f172a; --muted:#6b7280; --brand:#004aad; --edge:#e5e7eb; --bg:#f8fafc; --card:#ffffff;
+    }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
+    .wrap{max-width:960px;margin:24px auto;padding:0 16px 64px;}
+    header{display:flex;justify-content:space-between;align-items:center;margin:16px 0 12px}
+    .brand{font-weight:800;color:var(--brand);letter-spacing:.3px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:#0ea5e9;color:#fff;border:0;border-radius:12px;padding:10px 14px;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.08);cursor:pointer}
+    button.secondary{background:#1118270d;color:#0f172a}
+    button.danger{background:#ef4444}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .card{background:var(--card);border:1px solid var(--edge);border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px rgba(2,6,23,.04)}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+    input,textarea{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--edge);border-radius:12px;background:#fff}
+    textarea{min-height:64px;resize:vertical}
+    .muted{color:var(--muted)}
+    .install-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .hr{height:1px;background:var(--edge);margin:12px 0}
+    .badge{display:inline-flex;gap:6px;align-items:center;background:#eef2ff;color:#3730a3;padding:4px 8px;border-radius:999px;font-size:12px}
+    .right{ text-align:right }
+    .totais{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+    /* Impressão → PDF */
+    @media print {
+      body{background:#fff}
+      .actions, .remove-btn, .install-controls { display:none !important }
+      .wrap{max-width:100%;margin:0;padding:0}
+      header{margin:0 0 8mm;padding:0 6mm;border-bottom:1px solid #ddd}
+      .card{box-shadow:none;border:1px solid #ddd;border-radius:8px;page-break-inside:avoid}
+      @page { size: A4; margin: 12mm; }
+      input, textarea{border:0;padding:0}
+      input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{ -webkit-appearance: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="brand">CONSULTORIA E GESTÃO</div>
+        <div class="muted" id="status">Offline-ready</div>
+      </div>
+      <div class="actions">
+        <button id="btnAdd">Adicionar Instalação</button>
+        <button id="btnPrint">Gerar PDF</button>
+        <button id="btnClear" class="secondary">Limpar Dados</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>Nome do Cliente</label>
+          <input id="cliente" placeholder="Ex.: JOSE LOURENÇO DOS REIS" />
+        </div>
+        <div>
+          <label>Aviso Prévio</label>
+          <input id="aviso" placeholder="Ex.: 180 dias" />
+        </div>
+      </div>
+      <div class="hr"></div>
+      <div class="row">
+        <div>
+          <label>Contato (opcional)</label>
+          <input id="contato" placeholder="Ex.: (34) 9 9126-0926" />
+        </div>
+        <div>
+          <label>Endereço (opcional)</label>
+          <input id="endereco" placeholder="Ex.: Av. Eduardo Augusto da Silva, 78 - Ipanema, Patos de Minas - MG" />
+        </div>
+      </div>
+    </div>
+
+    <div id="instalacoes"></div>
+
+    <div class="card">
+      <div class="install-header">
+        <div class="badge">Resumo</div>
+      </div>
+      <div class="totais">
+        <div>
+          <label>Economia estimada Mensal (todas as UCs) – opcional</label>
+          <input id="economiaMensalTodas" placeholder="Ex.: 3.913,20 R$" />
+        </div>
+        <div>
+          <label>Economia estimada Anual (todas as UCs) – opcional</label>
+          <input id="economiaAnualTodas" placeholder="Ex.: 46.958,40 R$" />
+        </div>
+      </div>
+    </div>
+
+    <p class="muted">Dica: depois de clicar em <b>Gerar PDF</b>, escolha “Salvar como PDF”. O layout já está ajustado para A4.</p>
+  </div>
+
+  <template id="tpl-install">
+    <div class="card install">
+      <div class="install-header">
+        <div class="badge">Instalação <span class="ix"></span></div>
+        <div class="install-controls">
+          <button class="remove-btn danger">Excluir</button>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Nº da Instalação</label>
+          <input data-key="numero" placeholder="Ex.: 3003772568" />
+        </div>
+        <div>
+          <label>CONSUMO MÉDIO</label>
+          <input data-key="consumoMedio" placeholder="Ex.: 13.144" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>TAXA MÍNIMA CEMIG</label>
+          <input data-key="taxaMinima" placeholder="Ex.: 100" />
+        </div>
+        <div>
+          <label>CONSUMO IDEAL</label>
+          <input data-key="consumoIdeal" placeholder="Ex.: 13.044" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Tarifa Base CEMIG sem imposto</label>
+          <input data-key="tarifaBase" placeholder="Ex.: 0,963440 R$" />
+        </div>
+        <div>
+          <label>Pis/Cofins (Percentual médio)</label>
+          <input data-key="pisCofins" placeholder="Ex.: 5%" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Tarifa Cheia (Média)</label>
+          <input data-key="tarifaCheia" placeholder="Ex.: 1,143440 R$" />
+        </div>
+        <div>
+          <label>ICMS</label>
+          <input data-key="icms" placeholder="Ex.: 18%" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Tarifa Comercial  Com Devolução Pis/Cofins</label>
+          <input data-key="tarifaComercial" placeholder="Ex.: 0,9152679 R$" />
+        </div>
+        <div>
+          <label>Aviso Prévio (opcional)</label>
+          <input data-key="avisoPrevio" placeholder="Ex.: 180 dias" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Observações (opcional)</label>
+          <textarea data-key="obs" placeholder="Anotações específicas desta instalação"></textarea>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    // --- Estado -------------------------------------------------------------
+    const elCliente = document.getElementById('cliente');
+    const elAviso   = document.getElementById('aviso');
+    const elContato = document.getElementById('contato');
+    const elEnd     = document.getElementById('endereco');
+    const elInst    = document.getElementById('instalacoes');
+    const elMensalT = document.getElementById('economiaMensalTodas');
+    const elAnualT  = document.getElementById('economiaAnualTodas');
+
+    const STATE_KEY = 'orcamentos:pwa:v1';
+
+    const state = loadState() || {
+      cliente: '', aviso: '', contato:'', endereco:'',
+      instalacoes: [ novaInstalacao() ],
+      economiaMensalTodas:'', economiaAnualTodas:''
+    };
+
+    function novaInstalacao(){
+      return {
+        numero:'', consumoMedio:'', taxaMinima:'', consumoIdeal:'',
+        tarifaBase:'R$ 0,963440', pisCofins:'5%', tarifaCheia:'R$ 1,143440', icms:'18%',
+        tarifaComercial:'R$ 0,9152679', avisoPrevio:'', obs:''
+      }
+    }
+    }
+
+    function saveState(){
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    }
+    function loadState(){
+      try{ return JSON.parse(localStorage.getItem(STATE_KEY)||''); }catch(_){ return null }
+    }
+
+    function bindHeader(){
+      elCliente.value = state.cliente; elAviso.value=state.aviso; elContato.value=state.contato; elEnd.value=state.endereco;
+      elMensalT.value = state.economiaMensalTodas; elAnualT.value = state.economiaAnualTodas;
+
+      elCliente.addEventListener('input', ()=>{ state.cliente=elCliente.value; saveState(); });
+      elAviso.addEventListener('input',   ()=>{ state.aviso=elAviso.value; saveState(); });
+      elContato.addEventListener('input', ()=>{ state.contato=elContato.value; saveState(); });
+      elEnd.addEventListener('input',     ()=>{ state.endereco=elEnd.value; saveState(); });
+      elMensalT.addEventListener('input', ()=>{ state.economiaMensalTodas=elMensalT.value; saveState(); });
+      elAnualT.addEventListener('input',  ()=>{ state.economiaAnualTodas=elAnualT.value; saveState(); });
+    }
+
+    function renderInstalacoes(){
+      elInst.innerHTML='';
+      state.instalacoes.forEach((inst, i)=>{
+        const node = document.getElementById('tpl-install').content.cloneNode(true);
+        node.querySelector('.ix').textContent = i+1;
+        node.querySelectorAll('[data-key]').forEach(inp=>{
+          const k = inp.dataset.key; inp.value = inst[k]||'';
+          inp.addEventListener('input', ()=>{ inst[k]=inp.value; saveState(); });
+        });
+        const wrap = node.querySelector('.install');
+        const btnR = node.querySelector('.remove-btn');
+        btnR.addEventListener('click', ()=>{ if(confirm('Excluir esta instalação?')){ state.instalacoes.splice(i,1); saveState(); renderInstalacoes(); }});
+        if(state.instalacoes.length===1){ btnR.style.display='none'; }
+        elInst.appendChild(node);
+      })
+    }
+
+    // --- Controles ----------------------------------------------------------
+    document.getElementById('btnAdd').addEventListener('click',()=>{
+      state.instalacoes.push(novaInstalacao());
+      saveState(); renderInstalacoes();
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    });
+
+    document.getElementById('btnPrint').addEventListener('click',()=>{
+      window.print();
+    });
+
+    document.getElementById('btnClear').addEventListener('click',()=>{
+      if(!confirm('Limpar todos os dados desta proposta?')) return;
+      localStorage.removeItem(STATE_KEY);
+      location.reload();
+    });
+
+    // --- SW / status --------------------------------------------------------
+    const statusEl = document.getElementById('status');
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', ()=>{
+        navigator.serviceWorker.register('./sw.js').then(()=>{
+          statusEl.textContent = 'Offline pronto (PWA instalada)';
+        }).catch(()=>{ statusEl.textContent='Sem Service Worker'; });
+      });
+    } else {
+      statusEl.textContent = 'Navegador sem Service Worker';
+    }
+
+    // Inicializa
+    bindHeader();
+    renderInstalacoes();
+  </script>
+</body>
+</html>
+
+<!-- =========================== sw.js (copie para arquivo separado) =========================== -->
+<!--
+const CACHE = 'orcamentos-pwa-v1';
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.webmanifest'
+];
+self.addEventListener('install', e=>{
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));
+});
+self.addEventListener('activate', e=>{
+  e.waitUntil(
+    caches.keys().then(keys=>Promise.all(keys.map(k=>k!==CACHE && caches.delete(k))))
+      .then(()=>self.clients.claim())
+  );
+});
+self.addEventListener('fetch', e=>{
+  const req = e.request;
+  e.respondWith(
+    caches.match(req).then(cached=> cached || fetch(req).then(res=>{
+      const copy = res.clone();
+      caches.open(CACHE).then(c=>c.put(req, copy));
+      return res;
+    }).catch(()=> cached))
+  );
+});
+-->
+
+<!-- ======================== manifest.webmanifest (copie para arquivo separado) ======================== -->
+<!--
+{
+  "name": "Propostas – Consultoria e Gestão",
+  "short_name": "Propostas",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='24' fill='%23004aad'/%3E%3Ctext x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='72' fill='white'%3E%C2%A2%3C/text%3E%3C/svg%3E", "sizes": "128x128", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
+-->

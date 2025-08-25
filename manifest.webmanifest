@@ -1,0 +1,14 @@
+<!-- ======================== manifest.webmanifest (copie para arquivo separado) ======================== -->
+<!--
+{
+  "name": "Propostas – Consultoria e Gestão",
+  "short_name": "Propostas",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='24' fill='%23004aad'/%3E%3Ctext x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='72' fill='white'%3E%C2%A2%3C/text%3E%3C/svg%3E", "sizes": "128x128", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
+-->
